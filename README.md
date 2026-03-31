@@ -79,6 +79,8 @@ mj-agent setup
 ```bash
 mj-agent doctor
 mj-agent auth <token>
+mj-agent version
+mj-agent restart /Users/you/Documents/ide/midjourney-agent
 mj-agent get /health
 mj-agent get '/api/explore/search?prompt=red&page=1'
 mj-agent post /api/explore/search '{"prompt":"red","page":1}'

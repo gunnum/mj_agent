@@ -21,6 +21,8 @@ Usage:
   mj-agent setup
   mj-agent doctor
   mj-agent auth [token]
+  mj-agent version
+  mj-agent restart [project-path]
   mj-agent get <path>
   mj-agent post <path> [json]
   mj-agent request <method> <path> [json]
@@ -28,6 +30,8 @@ Usage:
 Examples:
   mj-agent setup
   mj-agent auth <token>
+  mj-agent version
+  mj-agent restart /Users/you/Documents/ide/midjourney-agent
   mj-agent get /health
   mj-agent get '/api/explore/search?prompt=red&page=1'
   mj-agent post /api/explore/search '{"prompt":"red","page":1}'
@@ -284,6 +288,27 @@ async function runRequest(method, pathArg, bodyArg) {
   }
 }
 
+async function runVersion() {
+  const packageJsonPath = new URL('../package.json', import.meta.url)
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  console.log(`${packageJson.name} ${packageJson.version}`)
+}
+
+async function runRestart(projectPathArg) {
+  const projectPath = projectPathArg || process.cwd()
+  const scriptPath = join(projectPath, 'restart.command')
+
+  try {
+    await execFileAsync(scriptPath, [], { cwd: projectPath, maxBuffer: 10 * 1024 * 1024 })
+    console.log(`Restarted project: ${projectPath}`)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`Failed to restart project via ${scriptPath}`)
+    console.error(message)
+    exit(1)
+  }
+}
+
 async function main() {
   const [command, ...args] = process.argv.slice(2)
 
@@ -296,6 +321,12 @@ async function main() {
       return
     case 'auth':
       await runAuth(args[0])
+      return
+    case 'version':
+      await runVersion()
+      return
+    case 'restart':
+      await runRestart(args[0])
       return
     case 'get':
       await runRequest('GET', args[0])

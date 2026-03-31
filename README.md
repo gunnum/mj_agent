@@ -25,6 +25,13 @@ cd /Users/gunnum/Documents/ide/midjourney-agent
 ./restart.command
 ```
 
+如果你想给其他机器安装一个轻量调用 CLI：
+
+```bash
+cd /Users/gunnum/Documents/ide/midjourney-agent
+npm install -g .
+```
+
 默认启动地址：
 
 ```text
@@ -42,6 +49,46 @@ http://127.0.0.1:18123
 - `runtime/midjourney-agent.pid`：当前服务进程 PID
 - `runtime/service.log`：服务启动和运行输出
 - `runtime/request-logs/YYYY-MM-DD.log`：按日期分割的请求日志
+
+## CLI
+
+仓库内置了一个轻量 CLI，适合给其他 agent、脚本或外部机器调用 Railway 公网 API。
+
+安装：
+
+```bash
+cd /Users/gunnum/Documents/ide/midjourney-agent
+npm install -g .
+```
+
+首次配置：
+
+```bash
+mj-agent setup
+```
+
+这个命令会：
+
+- 检查 `node` 和 `curl`
+- 提示需要配置的 `Base URL`
+- 引导输入 Bearer Token
+- 立即执行一次鉴权验证
+
+常用命令：
+
+```bash
+mj-agent doctor
+mj-agent auth <token>
+mj-agent get /health
+mj-agent get '/api/explore/search?prompt=red&page=1'
+mj-agent post /api/explore/search '{"prompt":"red","page":1}'
+```
+
+CLI 配置文件默认保存在：
+
+```text
+~/.mj-agent-cli/config.json
+```
 
 ## 推荐接入流程
 

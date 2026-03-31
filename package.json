@@ -3,10 +3,14 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "bin": {
+    "mj-agent": "./bin/mj-agent.js"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "node --import tsx src/server.ts",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "cli": "node ./bin/mj-agent.js"
   },
   "engines": {
     "node": ">=20.0.0"

@@ -14,6 +14,12 @@ export const config = {
   host: process.env.MJ_AGENT_HOST?.trim() || '127.0.0.1',
   runtimeDir: process.env.MJ_RUNTIME_DIR?.trim() || join(process.cwd(), 'runtime'),
   requestLogDir: process.env.MJ_REQUEST_LOG_DIR?.trim() || join(process.cwd(), 'runtime', 'request-logs'),
+  apiToken: process.env.MJ_API_TOKEN?.trim() || '',
+  tokenRegistryPath: process.env.MJ_TOKEN_REGISTRY_PATH?.trim() || join(process.cwd(), 'runtime', 'token-registry.md'),
+  corsOrigins: (process.env.MJ_CORS_ORIGINS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean),
   chromePath: requireAbsoluteChromePath(
     process.env.MJ_CHROME_PATH?.trim() || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   ),

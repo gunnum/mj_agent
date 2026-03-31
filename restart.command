@@ -18,6 +18,7 @@ RUNTIME_DIR="$SCRIPT_DIR/runtime"
 PLIST_FILE="$RUNTIME_DIR/$LABEL.plist"
 PID_FILE="$RUNTIME_DIR/midjourney-agent.pid"
 SERVICE_LOG="$RUNTIME_DIR/service.log"
+START_CMD="cd \"$SCRIPT_DIR\" && if [[ -f \".env\" ]]; then set -a; source \".env\"; set +a; fi; exec node --import tsx src/server.ts"
 
 mkdir -p "$RUNTIME_DIR"
 
@@ -57,8 +58,13 @@ cat >"$PLIST_FILE" <<PLIST
 PLIST
 
 launchctl bootout "gui/$USER_ID/$LABEL" >/dev/null 2>&1 || true
-launchctl bootstrap "gui/$USER_ID" "$PLIST_FILE"
-launchctl kickstart -k "gui/$USER_ID/$LABEL"
+
+if launchctl bootstrap "gui/$USER_ID" "$PLIST_FILE" >/dev/null 2>&1; then
+  launchctl kickstart -k "gui/$USER_ID/$LABEL" >/dev/null 2>&1 || true
+else
+  echo "launchctl bootstrap failed, falling back to nohup mode"
+  nohup /bin/zsh -lc "$START_CMD" >>"$SERVICE_LOG" 2>&1 </dev/null &!
+fi
 
 for _ in {1..15}; do
   LISTEN_PID="$(lsof -ti tcp:"$PORT" || true)"

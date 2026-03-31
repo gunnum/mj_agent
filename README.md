@@ -63,7 +63,7 @@ http://127.0.0.1:18123
 - Base URL: `http://127.0.0.1:18123`
 - Content-Type: `application/json`
 - 编码: `utf-8`
-- 鉴权方式: 不做额外服务端鉴权，依赖当前 Chrome 登录态
+- 鉴权方式: 默认无鉴权；若配置 `runtime/token-registry.md` 中的激活 token，或设置 `MJ_API_TOKEN`，则所有接口都需要 `Authorization: Bearer <token>`
 
 ## 接口总览
 
@@ -142,6 +142,14 @@ http://127.0.0.1:18123
 curl -sS http://127.0.0.1:18123/health
 ```
 
+如果启用了 token：
+
+```bash
+curl -sS \
+  -H "Authorization: Bearer <your-token>" \
+  http://127.0.0.1:18123/health
+```
+
 响应示例：
 
 ```json
@@ -198,7 +206,10 @@ curl -sS http://127.0.0.1:18123/api/login/status
 请求示例：
 
 ```bash
-curl -sS -X POST http://127.0.0.1:18123/api/browser/open
+curl -sS \
+  -X POST \
+  -H "Authorization: Bearer <your-token>" \
+  http://127.0.0.1:18123/api/browser/open
 ```
 
 响应示例：
@@ -232,7 +243,9 @@ curl -sS -X POST http://127.0.0.1:18123/api/browser/open
 请求示例：
 
 ```bash
-curl -sS "http://127.0.0.1:18123/api/explore/search?prompt=red%20dress&page=1"
+curl -sS \
+  -H "Authorization: Bearer <your-token>" \
+  "http://127.0.0.1:18123/api/explore/search?prompt=red%20dress&page=1"
 ```
 
 #### 4.2 POST 方式
@@ -254,6 +267,7 @@ curl -sS "http://127.0.0.1:18123/api/explore/search?prompt=red%20dress&page=1"
 curl -sS \
   -X POST http://127.0.0.1:18123/api/explore/search \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <your-token>" \
   -d '{"prompt":"red dress","page":1}'
 ```
 
@@ -306,7 +320,9 @@ curl -sS \
 请求示例：
 
 ```bash
-curl -sS "http://127.0.0.1:18123/api/explore/styles-top?page=1"
+curl -sS \
+  -H "Authorization: Bearer <your-token>" \
+  "http://127.0.0.1:18123/api/explore/styles-top?page=1"
 ```
 
 成功响应示例：
@@ -339,7 +355,9 @@ curl -sS "http://127.0.0.1:18123/api/explore/styles-top?page=1"
 请求示例：
 
 ```bash
-curl -sS "http://127.0.0.1:18123/api/explore/video-top?page=1"
+curl -sS \
+  -H "Authorization: Bearer <your-token>" \
+  "http://127.0.0.1:18123/api/explore/video-top?page=1"
 ```
 
 成功响应示例：
@@ -408,6 +426,9 @@ print(data)
 - `MJ_AGENT_HOST`: 监听地址，默认 `127.0.0.1`
 - `MJ_RUNTIME_DIR`: 运行时目录，默认 `<project>/runtime`
 - `MJ_REQUEST_LOG_DIR`: 请求日志目录，默认 `<project>/runtime/request-logs`
+- `MJ_TOKEN_REGISTRY_PATH`: 本地 Markdown token 台账路径。若文件中存在 `active` token，则所有请求都必须带 `Authorization: Bearer <token>`
+- `MJ_API_TOKEN`: 单个 API Bearer Token 兼容项；如果 token 台账里已有激活 token，优先使用台账
+- `MJ_CORS_ORIGINS`: 允许跨域的来源列表，逗号分隔；未配置时不返回 CORS 头
 - `MJ_CHROME_PATH`: Chrome 可执行文件绝对路径
 - `MJ_PROFILE_NAME`: 浏览器 profile 名称，默认 `default`
 - `MJ_USER_DATA_DIR`: 浏览器用户目录，默认 `~/.midjourney-agent/<profile>`
@@ -419,10 +440,46 @@ print(data)
 
 ```bash
 MJ_AGENT_PORT=18123 \
+MJ_TOKEN_REGISTRY_PATH=/path/to/runtime/token-registry.md \
 MJ_PROFILE_NAME=default \
 MJ_HEADLESS=false \
 npm run start
 ```
+
+## 公网部署建议
+
+如果要暴露到公网，至少建议这样配置：
+
+```bash
+MJ_AGENT_HOST=0.0.0.0
+MJ_TOKEN_REGISTRY_PATH=/path/to/runtime/token-registry.md
+MJ_CORS_ORIGINS=https://your-app.example.com
+```
+
+说明：
+
+- `MJ_AGENT_HOST=0.0.0.0` 允许反向代理、隧道或局域网入口访问
+- `token-registry.md` 是最基础的接口保护，不建议公网暴露时留空
+- `MJ_CORS_ORIGINS` 只在浏览器前端直连时需要配置
+
+## Token 台账
+
+推荐把 token 记录在本地 Markdown 文件里，例如：
+
+```md
+# Token Registry
+
+| status | name | token | note |
+| --- | --- | --- | --- |
+| active | local-admin | your-token-here | 主控 token |
+| disabled | old-client | old-token-here | 已停用 |
+```
+
+规则：
+
+- 只有 `status` 为 `active` 的 token 会被服务接受
+- 这个文件建议放在 `runtime/` 下，只保留在本机，不要提交到 Git
+- 如果台账里有任意一个激活 token，服务就会强制要求 Bearer Token
 
 ## 已知限制
 

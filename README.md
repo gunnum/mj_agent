@@ -1,0 +1,436 @@
+# midjourney-agent
+
+本地 Midjourney Explore 代理服务。
+
+它不依赖 `dnews` 运行时、队列或存储，专门负责：
+
+- 提供本地 HTTP API
+- 维护本地 Chrome 持久化用户目录
+- 通过 Playwright 驱动 Midjourney Explore 页面
+
+这个服务适合被其他本地应用直接调用，例如桌面端、Node.js 服务、自动化脚本或低代码工作流。
+
+## 快速启动
+
+```bash
+cd /Users/gunnum/Documents/ide/midjourney-agent
+npm install
+npm run start
+```
+
+也可以使用项目根目录下的重启脚本：
+
+```bash
+cd /Users/gunnum/Documents/ide/midjourney-agent
+./restart.command
+```
+
+默认启动地址：
+
+```text
+http://127.0.0.1:18123
+```
+
+服务启动后会输出：
+
+```text
+[midjourney-agent] listening on http://127.0.0.1:18123
+```
+
+运行脚本会在项目下生成：
+
+- `runtime/midjourney-agent.pid`：当前服务进程 PID
+- `runtime/service.log`：服务启动和运行输出
+- `runtime/request-logs/YYYY-MM-DD.log`：按日期分割的请求日志
+
+## 推荐接入流程
+
+首次使用建议按下面顺序调用：
+
+1. 调用 `GET /health`，确认服务可用。
+2. 调用 `POST /api/browser/open`，拉起 Midjourney Explore 页面。
+3. 在打开的 Chrome 窗口中完成 Midjourney 登录、Cloudflare 验证或 Cookie 校验。
+4. 调用搜索或榜单接口获取数据。
+
+说明：
+
+- `GET /health` 和 `GET /api/login/status` 都会触发浏览器懒初始化，所以第一次调用通常会慢一些。
+- 该服务依赖本机有人值守的 Chrome 会话，不适合作为纯无头云服务直接暴露公网。
+- 如果 Midjourney 更新了页面结构或接口参数，需要同步更新 [src/browser.ts](/Users/gunnum/Documents/ide/midjourney-agent/src/browser.ts)。
+
+## 基础信息
+
+- Base URL: `http://127.0.0.1:18123`
+- Content-Type: `application/json`
+- 编码: `utf-8`
+- 鉴权方式: 不做额外服务端鉴权，依赖当前 Chrome 登录态
+
+## 接口总览
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/health` | 服务健康检查，同时返回浏览器状态 |
+| `GET` | `/api/login/status` | 查看当前浏览器登录状态 |
+| `POST` | `/api/browser/open` | 打开 Midjourney Explore 页面 |
+| `GET` | `/api/explore/search?prompt=...&page=1` | 通过 query string 搜索图片 |
+| `POST` | `/api/explore/search` | 通过 JSON body 搜索图片 |
+| `GET` | `/api/explore/styles-top?page=1` | 获取 styles top 榜单 |
+| `GET` | `/api/explore/video-top?page=1` | 获取 video top 榜单 |
+
+## 响应约定
+
+成功时通常返回：
+
+```json
+{
+  "ok": true
+}
+```
+
+失败时通常返回：
+
+```json
+{
+  "error": "prompt is required"
+}
+```
+
+常见 HTTP 状态码：
+
+- `200` 请求成功
+- `400` 参数错误
+- `404` 路径不存在
+- `500` 浏览器初始化失败、页面执行失败或 Midjourney 页面异常
+
+## 请求日志
+
+服务会记录每一次 HTTP 调用。
+
+默认日志目录：
+
+```text
+/Users/gunnum/Documents/ide/midjourney-agent/runtime/request-logs
+```
+
+日志规则：
+
+- 按本机日期生成文件，例如 `2026-03-31.log`
+- 只有当天真的收到请求时，才会创建当天日志文件
+- 每行一条 JSON，便于后续用脚本、ELK 或数据工具分析
+
+日志内容示例：
+
+```json
+{"timestamp":"2026-03-31T13:00:00.000Z","method":"GET","path":"/health","status":200,"durationMs":542,"remoteAddress":"127.0.0.1","userAgent":"curl/8.7.1"}
+```
+
+## 接口文档
+
+### 1. 健康检查
+
+`GET /health`
+
+用途：
+
+- 检查服务是否可用
+- 返回 Playwright/Chrome 当前状态
+- 首次调用时会懒启动浏览器上下文
+
+请求示例：
+
+```bash
+curl -sS http://127.0.0.1:18123/health
+```
+
+响应示例：
+
+```json
+{
+  "ok": true,
+  "checkedAt": "2026-03-31T12:47:55.933Z",
+  "chromePath": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "userDataDir": "/Users/gunnum/.midjourney-agent/default",
+  "profileName": "default",
+  "headless": false,
+  "browserReady": true,
+  "loginState": "unknown",
+  "currentPageUrl": "about:blank"
+}
+```
+
+字段说明：
+
+- `ok`: 服务是否正常
+- `checkedAt`: 检查时间，ISO 字符串
+- `chromePath`: 当前 Chrome 可执行文件路径
+- `userDataDir`: 浏览器用户目录
+- `profileName`: 当前 profile 名称
+- `headless`: 是否无头模式
+- `browserReady`: 浏览器上下文是否已就绪
+- `loginState`: `unknown`、`logged_in`、`logged_out`
+- `currentPageUrl`: 当前页地址
+
+### 2. 查询登录状态
+
+`GET /api/login/status`
+
+用途：
+
+- 查询当前 Midjourney 登录状态
+- 返回结构与 `/health` 基本一致
+
+请求示例：
+
+```bash
+curl -sS http://127.0.0.1:18123/api/login/status
+```
+
+### 3. 打开浏览器
+
+`POST /api/browser/open`
+
+用途：
+
+- 打开或激活本机 Chrome
+- 导航到 Midjourney Explore 页面
+- 方便人工完成登录或验证
+
+请求示例：
+
+```bash
+curl -sS -X POST http://127.0.0.1:18123/api/browser/open
+```
+
+响应示例：
+
+```json
+{
+  "ok": true,
+  "url": "https://www.midjourney.com/explore",
+  "message": "Explore page opened. Complete login or Cloudflare in the Chrome window if needed."
+}
+```
+
+说明：
+
+- 首次打开浏览器时响应可能比其他接口更慢。
+- 如果 Midjourney 页面还没完成登录，这个接口只负责打开页面，不会自动完成认证。
+
+### 4. 搜索图片
+
+支持两种调用方式。
+
+#### 4.1 GET 方式
+
+`GET /api/explore/search?prompt=<关键词>&page=<页码>`
+
+参数：
+
+- `prompt`: 必填，搜索词
+- `page`: 可选，页码，默认 `1`
+
+请求示例：
+
+```bash
+curl -sS "http://127.0.0.1:18123/api/explore/search?prompt=red%20dress&page=1"
+```
+
+#### 4.2 POST 方式
+
+`POST /api/explore/search`
+
+请求体：
+
+```json
+{
+  "prompt": "red dress",
+  "page": 1
+}
+```
+
+请求示例：
+
+```bash
+curl -sS \
+  -X POST http://127.0.0.1:18123/api/explore/search \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"red dress","page":1}'
+```
+
+成功响应示例：
+
+```json
+{
+  "ok": true,
+  "kind": "search_images",
+  "query": {
+    "prompt": "red dress",
+    "page": 1
+  },
+  "response": {
+    "url": "https://www.midjourney.com/api/explore-vector-search?prompt=red%20dress&page=1&_ql=explore",
+    "status": 200,
+    "ok": true,
+    "body": {},
+    "capturedAt": "2026-03-31T12:00:00.000Z"
+  }
+}
+```
+
+字段说明：
+
+- `kind`: 固定为 `search_images`
+- `query`: 回显本次请求参数
+- `response.url`: Midjourney 实际调用的接口地址
+- `response.status`: Midjourney 返回状态码
+- `response.ok`: Midjourney 请求是否成功
+- `response.body`: Midjourney 原始返回体
+- `response.capturedAt`: 捕获时间
+
+失败响应示例：
+
+```json
+{
+  "error": "prompt is required"
+}
+```
+
+### 5. 获取 styles top 榜单
+
+`GET /api/explore/styles-top?page=<页码>`
+
+参数：
+
+- `page`: 可选，默认 `1`
+
+请求示例：
+
+```bash
+curl -sS "http://127.0.0.1:18123/api/explore/styles-top?page=1"
+```
+
+成功响应示例：
+
+```json
+{
+  "ok": true,
+  "kind": "styles_top",
+  "query": {
+    "page": 1
+  },
+  "response": {
+    "url": "https://www.midjourney.com/api/explore-srefs?page=1&_ql=explore&feed=styles_top",
+    "status": 200,
+    "ok": true,
+    "body": {},
+    "capturedAt": "2026-03-31T12:00:00.000Z"
+  }
+}
+```
+
+### 6. 获取 video top 榜单
+
+`GET /api/explore/video-top?page=<页码>`
+
+参数：
+
+- `page`: 可选，默认 `1`
+
+请求示例：
+
+```bash
+curl -sS "http://127.0.0.1:18123/api/explore/video-top?page=1"
+```
+
+成功响应示例：
+
+```json
+{
+  "ok": true,
+  "kind": "video_top",
+  "query": {
+    "page": 1
+  },
+  "response": {
+    "url": "https://www.midjourney.com/api/explore?page=1&feed=video_top&_ql=explore",
+    "status": 200,
+    "ok": true,
+    "body": {},
+    "capturedAt": "2026-03-31T12:00:00.000Z"
+  }
+}
+```
+
+## 其他应用调用示例
+
+### Node.js
+
+```ts
+const baseUrl = 'http://127.0.0.1:18123'
+
+async function searchMidjourney(prompt: string, page = 1) {
+  const response = await fetch(`${baseUrl}/api/explore/search`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ prompt, page }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`midjourney-agent request failed: ${response.status}`)
+  }
+
+  return response.json()
+}
+```
+
+### Python
+
+```python
+import requests
+
+base_url = "http://127.0.0.1:18123"
+
+resp = requests.post(
+    f"{base_url}/api/explore/search",
+    json={"prompt": "red dress", "page": 1},
+    timeout=60,
+)
+resp.raise_for_status()
+data = resp.json()
+print(data)
+```
+
+## 环境变量
+
+- `MJ_AGENT_PORT`: 服务端口，默认 `18123`
+- `MJ_AGENT_HOST`: 监听地址，默认 `127.0.0.1`
+- `MJ_RUNTIME_DIR`: 运行时目录，默认 `<project>/runtime`
+- `MJ_REQUEST_LOG_DIR`: 请求日志目录，默认 `<project>/runtime/request-logs`
+- `MJ_CHROME_PATH`: Chrome 可执行文件绝对路径
+- `MJ_PROFILE_NAME`: 浏览器 profile 名称，默认 `default`
+- `MJ_USER_DATA_DIR`: 浏览器用户目录，默认 `~/.midjourney-agent/<profile>`
+- `MJ_HEADLESS`: 是否启用无头模式，默认 `false`
+- `MJ_TIMEOUT_MS`: 默认超时时间，默认 `30000`
+- `MJ_EXPLORE_URL`: Explore 页面地址，默认 `https://www.midjourney.com/explore`
+
+示例：
+
+```bash
+MJ_AGENT_PORT=18123 \
+MJ_PROFILE_NAME=default \
+MJ_HEADLESS=false \
+npm run start
+```
+
+## 已知限制
+
+- 依赖本机已安装的 Google Chrome。
+- 依赖 Midjourney 登录态，未登录时搜索类接口可能返回登录页或鉴权失败结果。
+- 当前搜索与榜单接口本质上是透传 Midjourney Explore 页面中的请求结果，返回体结构由 Midjourney 决定。
+- 如果需要给 Web 前端跨域调用，当前服务还没有显式设置 CORS 头。
+
+## 运维说明
+
+操作和交接信息见 [HANDOFF.md](/Users/gunnum/Documents/ide/midjourney-agent/HANDOFF.md)。

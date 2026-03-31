@@ -1,10 +1,10 @@
 import { createServer } from 'node:http'
 import type { IncomingMessage } from 'node:http'
+import { bridgeClient, forwardToBridge, handleGatewayBridgeRequest } from './bridge.js'
 import { config } from './config.js'
-import { midjourneyBrowser } from './browser.js'
 import { getRemoteAddress, getRequestLogDir, getRequestPath, getUserAgent, logRequest } from './logger.js'
+import { handleAgentRequest } from './routes.js'
 import { isAuthorizedToken } from './tokens.js'
-import { json, getNumber, readJson } from './utils.js'
 
 function buildCorsHeaders(request: Request) {
   const origin = request.headers.get('origin')?.trim()
@@ -36,11 +36,33 @@ function withCors(response: Response, request: Request) {
   })
 }
 
-async function handle(request: Request) {
+function jsonResponse(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data, null, 2), {
+    status,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+    },
+  })
+}
+
+async function handlePublicRequest(request: Request) {
   const url = new URL(request.url)
 
   if (request.method === 'OPTIONS') {
     return withCors(new Response(null, { status: 204 }), request)
+  }
+
+  if (url.pathname === '/healthz') {
+    return withCors(
+      jsonResponse({
+        ok: true,
+        mode: config.mode,
+        checkedAt: new Date().toISOString(),
+        bridgeEnabled: Boolean(config.gatewayUrl && config.bridgeToken),
+      }),
+      request,
+    )
   }
 
   if (!(await isAuthorizedToken(request.headers.get('authorization')))) {
@@ -57,48 +79,20 @@ async function handle(request: Request) {
     )
   }
 
-  if (request.method === 'GET' && url.pathname === '/health') {
-    return withCors(json(await midjourneyBrowser.getStatus()), request)
+  const response =
+    config.mode === 'gateway' ? await forwardToBridge(request) : await handleAgentRequest(request)
+
+  return withCors(response, request)
+}
+
+async function handleRequest(request: Request) {
+  const url = new URL(request.url)
+
+  if (url.pathname.startsWith('/api/bridge/')) {
+    return handleGatewayBridgeRequest(request)
   }
 
-  if (request.method === 'POST' && url.pathname === '/api/browser/open') {
-    return withCors(json(await midjourneyBrowser.openExplore()), request)
-  }
-
-  if (request.method === 'GET' && url.pathname === '/api/login/status') {
-    return withCors(json(await midjourneyBrowser.getStatus()), request)
-  }
-
-  if (request.method === 'POST' && url.pathname === '/api/explore/search') {
-    const body = await readJson<{ prompt?: string; page?: number }>(request)
-    const prompt = body.prompt?.trim()
-    if (!prompt) {
-      return withCors(json({ error: 'prompt is required' }, { status: 400 }), request)
-    }
-    const page = Number.isFinite(body.page) ? Number(body.page) : 1
-    return withCors(json(await midjourneyBrowser.runSearch(prompt, page)), request)
-  }
-
-  if (request.method === 'GET' && url.pathname === '/api/explore/search') {
-    const prompt = url.searchParams.get('prompt')?.trim()
-    if (!prompt) {
-      return withCors(json({ error: 'prompt is required' }, { status: 400 }), request)
-    }
-    const page = getNumber(url.searchParams.get('page'), 1)
-    return withCors(json(await midjourneyBrowser.runSearch(prompt, page)), request)
-  }
-
-  if (request.method === 'GET' && url.pathname === '/api/explore/styles-top') {
-    const page = getNumber(url.searchParams.get('page'), 1)
-    return withCors(json(await midjourneyBrowser.fetchStylesTop(page)), request)
-  }
-
-  if (request.method === 'GET' && url.pathname === '/api/explore/video-top') {
-    const page = getNumber(url.searchParams.get('page'), 1)
-    return withCors(json(await midjourneyBrowser.fetchVideoTop(page)), request)
-  }
-
-  return withCors(json({ error: 'Not found' }, { status: 404 }), request)
+  return handlePublicRequest(request)
 }
 
 const server = createServer(async (req, res) => {
@@ -117,7 +111,7 @@ const server = createServer(async (req, res) => {
   const userAgent = getUserAgent(req.headers['user-agent'])
 
   try {
-    const response = await handle(request)
+    const response = await handleRequest(request)
     res.writeHead(response.status, Object.fromEntries(response.headers.entries()))
     const responseBody = await response.text()
     res.end(responseBody)
@@ -133,9 +127,10 @@ const server = createServer(async (req, res) => {
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    const status = /timed out/i.test(message) ? 504 : 500
     const response = withCors(
       new Response(JSON.stringify({ error: message }, null, 2), {
-        status: 500,
+        status,
         headers: { 'content-type': 'application/json; charset=utf-8' },
       }),
       request,
@@ -145,7 +140,7 @@ const server = createServer(async (req, res) => {
     await logRequest({
       method,
       path,
-      status: 500,
+      status,
       durationMs: Date.now() - startedAt,
       remoteAddress,
       userAgent,
@@ -158,8 +153,13 @@ const server = createServer(async (req, res) => {
 
 server.listen(config.port, config.host, () => {
   console.log(`[midjourney-agent] listening on http://${config.host}:${config.port}`)
+  console.log(`[midjourney-agent] mode=${config.mode}`)
   console.log(`[midjourney-agent] profile=${config.userDataDir}`)
   console.log(`[midjourney-agent] requestLogs=${getRequestLogDir()}`)
+  if (config.mode !== 'gateway' && config.gatewayUrl && config.bridgeToken) {
+    console.log(`[midjourney-agent] bridge->gateway=${config.gatewayUrl}`)
+    bridgeClient.start()
+  }
 })
 
 async function readRequestBody(req: IncomingMessage) {

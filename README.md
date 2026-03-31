@@ -58,6 +58,21 @@ http://127.0.0.1:18123
 - 该服务依赖本机有人值守的 Chrome 会话，不适合作为纯无头云服务直接暴露公网。
 - 如果 Midjourney 更新了页面结构或接口参数，需要同步更新 [src/browser.ts](/Users/gunnum/Documents/ide/midjourney-agent/src/browser.ts)。
 
+## 运行模式
+
+服务支持两种模式：
+
+- `executor`：运行在你的本机 Mac 上，真正调用 Playwright 和 Midjourney
+- `gateway`：运行在 Railway 这类公网环境中，只做鉴权、接收公网请求，再把任务转发给本机 executor
+
+推荐架构：
+
+```text
+Client -> Railway gateway -> 本机 executor -> Midjourney
+```
+
+这样外部客户端只打 Railway 域名，本机只需要主动向 Railway 拉任务，不需要额外开放入站端口。
+
 ## 基础信息
 
 - Base URL: `http://127.0.0.1:18123`
@@ -70,6 +85,7 @@ http://127.0.0.1:18123
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `GET` | `/health` | 服务健康检查，同时返回浏览器状态 |
+| `GET` | `/healthz` | 当前服务进程健康检查，返回运行模式 |
 | `GET` | `/api/login/status` | 查看当前浏览器登录状态 |
 | `POST` | `/api/browser/open` | 打开 Midjourney Explore 页面 |
 | `GET` | `/api/explore/search?prompt=...&page=1` | 通过 query string 搜索图片 |
@@ -177,6 +193,22 @@ curl -sS \
 - `browserReady`: 浏览器上下文是否已就绪
 - `loginState`: `unknown`、`logged_in`、`logged_out`
 - `currentPageUrl`: 当前页地址
+
+### 1.1 进程健康检查
+
+`GET /healthz`
+
+用途：
+
+- 检查当前服务进程是否存活
+- 返回当前运行模式
+- 适合给 Railway、反向代理或监控系统做存活探针
+
+请求示例：
+
+```bash
+curl -sS http://127.0.0.1:18123/healthz
+```
 
 ### 2. 查询登录状态
 
@@ -422,12 +454,18 @@ print(data)
 
 ## 环境变量
 
+- `MJ_AGENT_MODE`: `executor` 或 `gateway`，默认 `executor`
 - `MJ_AGENT_PORT`: 服务端口，默认 `18123`
 - `MJ_AGENT_HOST`: 监听地址，默认 `127.0.0.1`
 - `MJ_RUNTIME_DIR`: 运行时目录，默认 `<project>/runtime`
 - `MJ_REQUEST_LOG_DIR`: 请求日志目录，默认 `<project>/runtime/request-logs`
 - `MJ_TOKEN_REGISTRY_PATH`: 本地 Markdown token 台账路径。若文件中存在 `active` token，则所有请求都必须带 `Authorization: Bearer <token>`
 - `MJ_API_TOKEN`: 单个 API Bearer Token 兼容项；如果 token 台账里已有激活 token，优先使用台账
+- `MJ_GATEWAY_URL`: 本机 executor 主动连接的 gateway 地址
+- `MJ_BRIDGE_TOKEN`: gateway 与 executor 之间共享的桥接 token
+- `MJ_BRIDGE_POLL_TIMEOUT_MS`: bridge 长轮询超时，默认 `25000`
+- `MJ_BRIDGE_REQUEST_TIMEOUT_MS`: gateway 等待 executor 完成任务的超时，默认 `120000`
+- `MJ_BRIDGE_RETRY_DELAY_MS`: bridge 出错后的重试间隔，默认 `3000`
 - `MJ_CORS_ORIGINS`: 允许跨域的来源列表，逗号分隔；未配置时不返回 CORS 头
 - `MJ_CHROME_PATH`: Chrome 可执行文件绝对路径
 - `MJ_PROFILE_NAME`: 浏览器 profile 名称，默认 `default`
@@ -439,6 +477,7 @@ print(data)
 示例：
 
 ```bash
+MJ_AGENT_MODE=executor \
 MJ_AGENT_PORT=18123 \
 MJ_TOKEN_REGISTRY_PATH=/path/to/runtime/token-registry.md \
 MJ_PROFILE_NAME=default \
@@ -448,19 +487,45 @@ npm run start
 
 ## 公网部署建议
 
-如果要暴露到公网，至少建议这样配置：
+推荐使用 `Railway gateway + 本机 executor`：
 
 ```bash
+MJ_AGENT_MODE=gateway
 MJ_AGENT_HOST=0.0.0.0
-MJ_TOKEN_REGISTRY_PATH=/path/to/runtime/token-registry.md
+MJ_API_TOKEN=your-public-api-token
+MJ_BRIDGE_TOKEN=your-bridge-token
+MJ_TOKEN_REGISTRY_PATH=/tmp/mj-agent-empty-registry.md
 MJ_CORS_ORIGINS=https://your-app.example.com
 ```
 
 说明：
 
-- `MJ_AGENT_HOST=0.0.0.0` 允许反向代理、隧道或局域网入口访问
-- `token-registry.md` 是最基础的接口保护，不建议公网暴露时留空
-- `MJ_CORS_ORIGINS` 只在浏览器前端直连时需要配置
+- Railway gateway 用 `MJ_API_TOKEN` 保护公网调用
+- Railway gateway 用 `MJ_BRIDGE_TOKEN` 只接受你的本机 executor 轮询
+- Railway 上不需要 Midjourney 登录态，也不需要真实 Chrome 会话
+- 本机 executor 通过 `MJ_GATEWAY_URL` 主动向 gateway 拉任务
+- `MJ_CORS_ORIGINS` 只在浏览器前端直连 gateway 时需要配置
+
+### Railway Gateway
+
+```bash
+MJ_AGENT_MODE=gateway
+MJ_AGENT_HOST=0.0.0.0
+MJ_API_TOKEN=<public-api-token>
+MJ_BRIDGE_TOKEN=<bridge-token>
+MJ_TOKEN_REGISTRY_PATH=/tmp/mj-agent-empty-registry.md
+```
+
+### Local Executor
+
+```bash
+MJ_AGENT_MODE=executor
+MJ_AGENT_HOST=127.0.0.1
+MJ_AGENT_PORT=18123
+MJ_TOKEN_REGISTRY_PATH=/Users/your-user/Documents/ide/midjourney-agent/runtime/token-registry.md
+MJ_GATEWAY_URL=https://mjagent-production.up.railway.app
+MJ_BRIDGE_TOKEN=<bridge-token>
+```
 
 ## Token 台账
 
@@ -486,7 +551,7 @@ MJ_CORS_ORIGINS=https://your-app.example.com
 - 依赖本机已安装的 Google Chrome。
 - 依赖 Midjourney 登录态，未登录时搜索类接口可能返回登录页或鉴权失败结果。
 - 当前搜索与榜单接口本质上是透传 Midjourney Explore 页面中的请求结果，返回体结构由 Midjourney 决定。
-- 如果需要给 Web 前端跨域调用，当前服务还没有显式设置 CORS 头。
+- 浏览器前端直连时，只有 `MJ_CORS_ORIGINS` 中列出的来源会收到 CORS 头。
 
 ## 运维说明
 

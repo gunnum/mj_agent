@@ -5,7 +5,6 @@ import { activateChrome } from './utils.js'
 
 class MidjourneyBrowser {
   private contextPromise: Promise<BrowserContext> | null = null
-  private pagePromise: Promise<Page> | null = null
 
   async getContext() {
     if (!this.contextPromise) {
@@ -15,15 +14,10 @@ class MidjourneyBrowser {
   }
 
   async getPage() {
-    if (!this.pagePromise) {
-      this.pagePromise = (async () => {
-        const context = await this.getContext()
-        const page = context.pages()[0] || (await context.newPage())
-        page.setDefaultTimeout(config.defaultTimeoutMs)
-        return page
-      })()
-    }
-    return this.pagePromise
+    const context = await this.getContext()
+    const page = (await this.findBestPage(context)) || (await context.newPage())
+    page.setDefaultTimeout(config.defaultTimeoutMs)
+    return page
   }
 
   async getStatus() {
@@ -115,6 +109,20 @@ class MidjourneyBrowser {
       args: ['--disable-blink-features=AutomationControlled', '--window-size=1600,1000', '--lang=en-US'],
     })
     return context
+  }
+
+  private async findBestPage(context: BrowserContext) {
+    const pages = context.pages().filter((page) => !page.isClosed())
+    if (!pages.length) return null
+
+    const candidates = [
+      pages.find((page) => page.url().includes('midjourney.com/explore')),
+      pages.find((page) => page.url().includes('midjourney.com')),
+      pages.find((page) => page.url() && page.url() !== 'about:blank'),
+      pages[0],
+    ]
+
+    return candidates.find((page): page is Page => Boolean(page)) || null
   }
 
   private async ensureExploreReady(targetUrl = config.targetExploreUrl) {

@@ -52,7 +52,7 @@ http://127.0.0.1:18123
 
 ## CLI
 
-仓库内置了一个轻量 CLI，适合给其他 agent、脚本或外部机器调用 Railway 公网 API。
+仓库内置了一个轻量 CLI，适合给其他 agent、脚本或外部机器调用公网 API。
 
 安装：
 
@@ -70,7 +70,7 @@ mj-agent setup
 这个命令会：
 
 - 检查 `node` 和 `curl`
-- 提示需要配置的 `Base URL`
+- 提示输入运营方提供的 `Base URL`
 - 引导输入 Bearer Token
 - 立即执行一次鉴权验证
 
@@ -91,6 +91,21 @@ CLI 配置文件默认保存在：
 ```text
 ~/.mj-agent-cli/config.json
 ```
+
+如果你只是要在另一台机器上安装调用器，可以直接：
+
+```bash
+git clone https://github.com/gunnum/mj_agent.git
+cd mj_agent
+npm install
+npm install -g .
+mj-agent setup
+```
+
+`mj-agent setup` 需要你手动输入两项由运营方提供的信息：
+
+- `Base URL`
+- `Bearer Token`
 
 ## 推荐接入流程
 
@@ -120,7 +135,7 @@ CLI 配置文件默认保存在：
 Client -> Railway gateway -> 本机 executor -> Midjourney
 ```
 
-这样外部客户端只打 Railway 域名，本机只需要主动向 Railway 拉任务，不需要额外开放入站端口。
+这样外部客户端只打公网网关域名，本机只需要主动向 gateway 拉任务，不需要额外开放入站端口。
 
 ## 基础信息
 
@@ -510,7 +525,7 @@ print(data)
 - `MJ_REQUEST_LOG_DIR`: 请求日志目录，默认 `<project>/runtime/request-logs`
 - `MJ_TOKEN_REGISTRY_PATH`: 本地 Markdown token 台账路径。若文件中存在 `active` token，则所有请求都必须带 `Authorization: Bearer <token>`
 - `MJ_API_TOKEN`: 单个 API Bearer Token 兼容项；如果 token 台账里已有激活 token，优先使用台账
-- `MJ_GATEWAY_URL`: 本机 executor 主动连接的 gateway 地址
+- `MJ_GATEWAY_URL`: 本机 executor 主动连接的 gateway 地址，例如 `https://your-mj-agent-gateway.example.com`
 - `MJ_BRIDGE_TOKEN`: gateway 与 executor 之间共享的桥接 token
 - `MJ_BRIDGE_POLL_TIMEOUT_MS`: bridge 长轮询超时，默认 `25000`
 - `MJ_BRIDGE_REQUEST_TIMEOUT_MS`: gateway 等待 executor 完成任务的超时，默认 `120000`
@@ -572,7 +587,7 @@ MJ_AGENT_MODE=executor
 MJ_AGENT_HOST=127.0.0.1
 MJ_AGENT_PORT=18123
 MJ_TOKEN_REGISTRY_PATH=/Users/your-user/Documents/ide/midjourney-agent/runtime/token-registry.md
-MJ_GATEWAY_URL=https://mjagent-production.up.railway.app
+MJ_GATEWAY_URL=https://your-mj-agent-gateway.example.com
 MJ_BRIDGE_TOKEN=<bridge-token>
 ```
 

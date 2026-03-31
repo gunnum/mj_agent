@@ -11,7 +11,7 @@ import { stdin as input, stdout as output, exit } from 'node:process'
 const execFileAsync = promisify(execFile)
 const CONFIG_DIR = join(homedir(), '.mj-agent-cli')
 const CONFIG_PATH = join(CONFIG_DIR, 'config.json')
-const DEFAULT_BASE_URL = process.env.MJ_AGENT_CLI_BASE_URL || 'https://mjagent-production.up.railway.app'
+const DEFAULT_BASE_URL = process.env.MJ_AGENT_CLI_BASE_URL || ''
 const MIN_NODE_MAJOR = 20
 
 function printHelp() {
@@ -163,8 +163,10 @@ async function runDoctor() {
 async function promptForConfig(existing = {}) {
   const rl = readline.createInterface({ input, output })
   try {
-    const baseUrlInput = await rl.question(`Base URL [${existing.baseUrl || DEFAULT_BASE_URL}]: `)
-    const baseUrl = normalizeBaseUrl((baseUrlInput || existing.baseUrl || DEFAULT_BASE_URL).trim())
+    const suggestedBaseUrl = existing.baseUrl || DEFAULT_BASE_URL
+    const baseUrlLabel = suggestedBaseUrl ? `Base URL [${suggestedBaseUrl}]: ` : 'Base URL: '
+    const baseUrlInput = await rl.question(baseUrlLabel)
+    const baseUrl = normalizeBaseUrl((baseUrlInput || suggestedBaseUrl).trim())
     const tokenInput = await rl.question(`Bearer token${existing.token ? ' [press enter to keep current]' : ''}: `)
     const token = tokenInput.trim() || existing.token || ''
 
@@ -232,7 +234,7 @@ async function runAuth(tokenArg) {
 
   const nextConfig = {
     ...current,
-    baseUrl: normalizeBaseUrl(current.baseUrl || DEFAULT_BASE_URL),
+    baseUrl: normalizeBaseUrl(current.baseUrl || DEFAULT_BASE_URL || ''),
     token,
   }
 

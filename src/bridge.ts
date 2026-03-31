@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { config } from './config.js'
 import { handleAgentRequest } from './routes.js'
+
+const execFileAsync = promisify(execFile)
 
 interface BridgeTask {
   id: string
@@ -26,6 +30,37 @@ interface BridgePendingRequest {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function curlJson(url: string, token: string, body: string, maxTimeSeconds: number) {
+  const { stdout } = await execFileAsync('curl', [
+    '-sS',
+    '--connect-timeout',
+    '10',
+    '--max-time',
+    String(maxTimeSeconds),
+    '-X',
+    'POST',
+    '-H',
+    `Authorization: Bearer ${token}`,
+    '-H',
+    'Content-Type: application/json',
+    '-d',
+    body,
+    '-w',
+    '\n%{http_code}',
+    url,
+  ])
+
+  const separator = stdout.lastIndexOf('\n')
+  const responseBody = separator >= 0 ? stdout.slice(0, separator) : stdout
+  const statusText = separator >= 0 ? stdout.slice(separator + 1).trim() : ''
+  const status = Number.parseInt(statusText || '0', 10)
+
+  return {
+    status,
+    body: responseBody,
+  }
 }
 
 class BridgeQueue {
@@ -192,40 +227,35 @@ class BridgeClient {
   private async loop() {
     while (this.running) {
       try {
-        const pullResponse = await fetch(new URL('/api/bridge/pull', config.gatewayUrl), {
-          method: 'POST',
-          headers: {
-            authorization: `Bearer ${config.bridgeToken}`,
-            'content-type': 'application/json',
-          },
-          body: JSON.stringify({ executor: config.profileName }),
-        })
+        const pullResponse = await curlJson(
+          new URL('/api/bridge/pull', config.gatewayUrl).toString(),
+          config.bridgeToken,
+          JSON.stringify({ executor: config.profileName }),
+          Math.ceil(config.bridgePollTimeoutMs / 1000) + 10,
+        )
 
-        if (!pullResponse.ok) {
+        if (pullResponse.status < 200 || pullResponse.status >= 300) {
           throw new Error(`Bridge pull failed with status ${pullResponse.status}`)
         }
 
-        const payload = (await pullResponse.json()) as { task: BridgeTask | null }
+        const payload = JSON.parse(pullResponse.body) as { task: BridgeTask | null }
         if (!payload.task) {
           continue
         }
 
         const result = await executeBridgeTask(payload.task)
-        const pushResponse = await fetch(new URL('/api/bridge/result', config.gatewayUrl), {
-          method: 'POST',
-          headers: {
-            authorization: `Bearer ${config.bridgeToken}`,
-            'content-type': 'application/json',
-          },
-          body: JSON.stringify(result),
-        })
+        const pushResponse = await curlJson(
+          new URL('/api/bridge/result', config.gatewayUrl).toString(),
+          config.bridgeToken,
+          JSON.stringify(result),
+          30,
+        )
 
-        if (!pushResponse.ok) {
+        if (pushResponse.status < 200 || pushResponse.status >= 300) {
           throw new Error(`Bridge result push failed with status ${pushResponse.status}`)
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        console.error('[midjourney-agent] bridge error:', message)
+        console.error('[midjourney-agent] bridge error:', error)
         await sleep(config.bridgeRetryDelayMs)
       }
     }

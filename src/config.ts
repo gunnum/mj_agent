@@ -1,5 +1,8 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { loadEnvFile } from 'node:process'
+
+loadEnvFile()
 
 function requireAbsoluteChromePath(input: string) {
   const value = input.trim()

@@ -1,5 +1,5 @@
 import { midjourneyBrowser } from './browser.js'
-import { errorJson, getNumber, json, readJson } from './utils.js'
+import { errorJson, getNumber, isValidPage, json, parsePage, readJson } from './utils.js'
 
 export async function handleAgentRequest(request: Request) {
   const url = new URL(request.url)
@@ -22,7 +22,10 @@ export async function handleAgentRequest(request: Request) {
     if (!prompt) {
       return errorJson('INVALID_ARGUMENT', 'prompt is required', 400)
     }
-    const page = Number.isFinite(body.page) ? Number(body.page) : 1
+    const page = parsePage(body.page, 1)
+    if (!isValidPage(page)) {
+      return errorJson('INVALID_ARGUMENT', 'page must be an integer between 1 and 100', 400)
+    }
     return json(await midjourneyBrowser.runSearch(prompt, page))
   }
 
@@ -32,16 +35,25 @@ export async function handleAgentRequest(request: Request) {
       return errorJson('INVALID_ARGUMENT', 'prompt is required', 400)
     }
     const page = getNumber(url.searchParams.get('page'), 1)
+    if (!isValidPage(page)) {
+      return errorJson('INVALID_ARGUMENT', 'page must be an integer between 1 and 100', 400)
+    }
     return json(await midjourneyBrowser.runSearch(prompt, page))
   }
 
   if (request.method === 'GET' && url.pathname === '/api/explore/styles-top') {
     const page = getNumber(url.searchParams.get('page'), 1)
+    if (!isValidPage(page)) {
+      return errorJson('INVALID_ARGUMENT', 'page must be an integer between 1 and 100', 400)
+    }
     return json(await midjourneyBrowser.fetchStylesTop(page))
   }
 
   if (request.method === 'GET' && url.pathname === '/api/explore/video-top') {
     const page = getNumber(url.searchParams.get('page'), 1)
+    if (!isValidPage(page)) {
+      return errorJson('INVALID_ARGUMENT', 'page must be an integer between 1 and 100', 400)
+    }
     return json(await midjourneyBrowser.fetchVideoTop(page))
   }
 

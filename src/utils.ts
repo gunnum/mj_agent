@@ -36,6 +36,21 @@ export function getNumber(value: string | null, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
+export function parsePage(value: number | string | null | undefined, fallback = 1) {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number.parseInt(value, 10)
+        : Number.NaN
+
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+export function isValidPage(page: number) {
+  return Number.isInteger(page) && page >= 1 && page <= 100
+}
+
 export function activateChrome() {
   if (process.platform !== 'darwin') return
   try {

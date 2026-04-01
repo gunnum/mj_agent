@@ -150,19 +150,21 @@ mj-agent restart /path/to/mj_agent
 
 也就是说，调用方应传：
 
-- `page=1`
-- `page=2`
-- `page=3`
-- `page=4`
+- `page=1` 到 `page=100`
 
-当前推荐只使用这 4 个档位。
+当前允许范围是：
 
-按 Midjourney 当前分页大小估算，大致对应：
+- 最小值：`1`
+- 最大值：`100`
+- 超出范围会直接返回 `400`
 
-- `page=1`：约 `50` 条
-- `page=2`：约 `100` 条
-- `page=3`：约 `150` 条
-- `page=4`：约 `200` 条
+按 Midjourney 当前分页大小估算：
+
+- 每页大约 `50` 条
+- `page=1` 约对应前 `50` 条
+- `page=2` 约对应前 `100` 条范围
+- `page=10` 约对应前 `500` 条范围
+- `page=100` 约对应前 `5000` 条范围
 
 这里要特别注意：
 
@@ -177,8 +179,8 @@ mj-agent restart /path/to/mj_agent
 ```bash
 mj-agent get '/api/explore/search?prompt=red&page=1'
 mj-agent get '/api/explore/search?prompt=red&page=2'
-mj-agent get '/api/explore/search?prompt=red&page=3'
-mj-agent get '/api/explore/search?prompt=red&page=4'
+mj-agent get '/api/explore/search?prompt=red&page=10'
+mj-agent get '/api/explore/search?prompt=red&page=100'
 ```
 
 如果接入方需要固定数量，应在拿到结果后自行截断。

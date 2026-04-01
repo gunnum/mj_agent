@@ -113,6 +113,7 @@ mj-agent get /health
 
 ```bash
 mj-agent get '/api/explore/search?prompt=red&page=1'
+mj-agent get '/api/explore/styles-top-refs?page=1'
 ```
 
 POST 搜索：
@@ -196,6 +197,38 @@ mj-agent get '/api/explore/search?prompt=red&page=100'
 - `prompt`
 - `media_url`
 - `detail_url`
+
+`GET /api/explore/styles-top-refs?page=1` 当前返回的是更适合直接消费的样式卡片列表。
+
+每个 item 包含：
+
+- `styleId`
+- `imageUrl`
+- `href`
+- `detailUrl`
+- `sref`
+
+示例：
+
+```json
+{
+  "ok": true,
+  "kind": "styles_top_refs",
+  "query": {
+    "page": 1
+  },
+  "itemCount": 50,
+  "items": [
+    {
+      "styleId": "2447492178",
+      "imageUrl": "https://cdn.midjourney.com/styles/0_2447492178/portrait_384_N.webp",
+      "href": "/styles/0_2447492178",
+      "detailUrl": "https://www.midjourney.com/styles/0_2447492178",
+      "sref": "--sref 2447492178"
+    }
+  ]
+}
+```
 
 推荐返回形态：
 

@@ -1,4 +1,4 @@
-export type MidjourneyEndpointKind = 'search_images' | 'styles_top' | 'video_top'
+export type MidjourneyEndpointKind = 'search_images' | 'styles_top' | 'styles_top_refs' | 'video_top'
 
 export interface MidjourneyAgentStatus {
   ok: boolean
@@ -37,4 +37,12 @@ export interface MidjourneyQueryResult {
     prompt?: string
   }
   response: MidjourneyApiCapture
+}
+
+export interface MidjourneyStyleRefItem {
+  styleId: string
+  href: string
+  detailUrl: string
+  imageUrl: string
+  sref: string
 }

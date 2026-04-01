@@ -49,6 +49,14 @@ export async function handleAgentRequest(request: Request) {
     return json(await midjourneyBrowser.fetchStylesTop(page))
   }
 
+  if (request.method === 'GET' && url.pathname === '/api/explore/styles-top-refs') {
+    const page = getNumber(url.searchParams.get('page'), 1)
+    if (!isValidPage(page)) {
+      return errorJson('INVALID_ARGUMENT', 'page must be an integer between 1 and 100', 400)
+    }
+    return json(await midjourneyBrowser.fetchStylesTopRefs(page))
+  }
+
   if (request.method === 'GET' && url.pathname === '/api/explore/video-top') {
     const page = getNumber(url.searchParams.get('page'), 1)
     if (!isValidPage(page)) {

@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises'
 import { chromium, type BrowserContext, type Page } from 'playwright'
 import { config } from './config.js'
+import type { MidjourneyStyleRefItem } from './types.js'
 import { activateChrome } from './utils.js'
 
 class MidjourneyBrowser {
@@ -136,6 +137,29 @@ class MidjourneyBrowser {
     })
   }
 
+  async fetchStylesTopRefs(pageNumber: number) {
+    return this.withExecutionQueue('styles_top_refs', async () => {
+      const targetUrl = `https://www.midjourney.com/explore?tab=styles_top&page=${pageNumber}`
+      const response = await this.fetchApiWithFallback(
+        targetUrl,
+        `/api/explore-srefs?page=${pageNumber}&_ql=explore&feed=styles_top`,
+      )
+      const apiItems = this.extractStyleRefItemsFromApi(response.body)
+      const page = await this.ensureExploreReady(targetUrl, { exactTarget: true })
+      const domItems = await this.extractStyleRefItemsFromDom(page)
+      const items = this.mergeStyleRefItems(apiItems, domItems)
+
+      return {
+        ok: true,
+        kind: 'styles_top_refs' as const,
+        query: { page: pageNumber },
+        itemCount: items.length,
+        items,
+        response,
+      }
+    })
+  }
+
   async fetchVideoTop(pageNumber: number) {
     return this.withExecutionQueue('video_top', async () => {
       const targetUrl = 'https://www.midjourney.com/explore?tab=video_top'
@@ -183,10 +207,15 @@ class MidjourneyBrowser {
 
   private async ensureExploreReady(
     targetUrl = config.targetExploreUrl,
-    options: { focus?: boolean; interactive?: boolean } = {},
+    options: { focus?: boolean; interactive?: boolean; exactTarget?: boolean } = {},
   ) {
     const page = await this.getPage({ interactive: options.interactive })
-    if (!page.url() || !page.url().includes('midjourney.com/explore')) {
+    const currentUrl = page.url()
+    const shouldNavigate = options.exactTarget
+      ? currentUrl !== targetUrl
+      : !currentUrl || !currentUrl.includes('midjourney.com/explore')
+
+    if (shouldNavigate) {
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: config.defaultTimeoutMs }).catch(() => {})
     }
     if (options.focus) {
@@ -343,6 +372,75 @@ class MidjourneyBrowser {
     }
 
     return response
+  }
+
+  private extractStyleRefItemsFromApi(body: unknown): MidjourneyStyleRefItem[] {
+    if (!Array.isArray(body)) return []
+
+    return body
+      .map((value) => {
+        if (!value || typeof value !== 'object') return null
+        const record = value as Record<string, unknown>
+        const formattedSref = typeof record.formatted_sref === 'string' ? record.formatted_sref.trim() : ''
+        const styleIdMatch = formattedSref.match(/^\d{10}$/)
+        if (!styleIdMatch) return null
+
+        const styleId = styleIdMatch[0]
+        const href = `/styles/0_${styleId}`
+        return {
+          styleId,
+          href,
+          detailUrl: `https://www.midjourney.com${href}`,
+          imageUrl: `https://cdn.midjourney.com/styles/0_${styleId}/portrait_384_N.webp`,
+          sref: `--sref ${styleId}`,
+        }
+      })
+      .filter((item): item is MidjourneyStyleRefItem => Boolean(item))
+  }
+
+  private async extractStyleRefItemsFromDom(page: Page): Promise<MidjourneyStyleRefItem[]> {
+    await page.waitForSelector('a.bg-cover[href^="/styles/0_"] img.object-cover[src]', {
+      timeout: config.defaultTimeoutMs,
+    }).catch(() => {})
+
+    const items = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll('a.bg-cover[href^="/styles/0_"]'))
+        .map((anchor) => {
+          const href = anchor.getAttribute('href')?.trim() || ''
+          const imageUrl = anchor.querySelector('img.object-cover[src]')?.getAttribute('src')?.trim() || ''
+          const match = href.match(/^\/styles\/0_(\d{10})$/)
+          if (!match || !imageUrl) return null
+
+          const styleId = match[1]
+          return {
+            styleId,
+            href,
+            detailUrl: new URL(href, window.location.origin).toString(),
+            imageUrl,
+            sref: `--sref ${styleId}`,
+          }
+        })
+        .filter((item): item is MidjourneyStyleRefItem => Boolean(item))
+    })
+
+    return items
+  }
+
+  private mergeStyleRefItems(apiItems: MidjourneyStyleRefItem[], domItems: MidjourneyStyleRefItem[]) {
+    if (!apiItems.length) return domItems
+    if (!domItems.length) return apiItems
+
+    const domMatchesPage = apiItems[0]?.styleId === domItems[0]?.styleId
+    if (!domMatchesPage) {
+      return apiItems
+    }
+
+    const domItemsById = new Map(domItems.map((item) => [item.styleId, item]))
+
+    return apiItems.map((item) => {
+      const domItem = domItemsById.get(item.styleId)
+      return domItem ? { ...item, ...domItem } : item
+    })
   }
 
   private async detectLoginState(page: Page) {

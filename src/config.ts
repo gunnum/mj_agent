@@ -2,7 +2,11 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { loadEnvFile } from 'node:process'
 
-loadEnvFile()
+try {
+  loadEnvFile()
+} catch {
+  // Railway and other managed runtimes may inject env vars without a local .env file.
+}
 
 function requireAbsoluteChromePath(input: string) {
   const value = input.trim()
@@ -19,6 +23,10 @@ export const config = {
   runtimeDir: process.env.MJ_RUNTIME_DIR?.trim() || join(process.cwd(), 'runtime'),
   requestLogDir: process.env.MJ_REQUEST_LOG_DIR?.trim() || join(process.cwd(), 'runtime', 'request-logs'),
   apiToken: process.env.MJ_API_TOKEN?.trim() || '',
+  apiTokens: (process.env.MJ_API_TOKENS || '')
+    .split(/[\n,]/)
+    .map((value) => value.trim())
+    .filter(Boolean),
   tokenRegistryPath: process.env.MJ_TOKEN_REGISTRY_PATH?.trim() || join(process.cwd(), 'runtime', 'token-registry.md'),
   gatewayUrl: process.env.MJ_GATEWAY_URL?.trim() || '',
   bridgeToken: process.env.MJ_BRIDGE_TOKEN?.trim() || '',
@@ -37,6 +45,11 @@ export const config = {
     process.env.MJ_USER_DATA_DIR?.trim() ||
     join(homedir(), '.midjourney-agent', process.env.MJ_PROFILE_NAME?.trim() || 'default'),
   headless: /^(1|true|yes)$/i.test(process.env.MJ_HEADLESS || ''),
+  backgroundHeadless: process.env.MJ_BACKGROUND_HEADLESS
+    ? /^(1|true|yes)$/i.test(process.env.MJ_BACKGROUND_HEADLESS)
+    : true,
   defaultTimeoutMs: Number.parseInt(process.env.MJ_TIMEOUT_MS || '30000', 10),
+  apiFetchTimeoutMs: Number.parseInt(process.env.MJ_FETCH_TIMEOUT_MS || '20000', 10),
+  executionQueueTimeoutMs: Number.parseInt(process.env.MJ_EXECUTION_QUEUE_TIMEOUT_MS || '60000', 10),
   targetExploreUrl: process.env.MJ_EXPLORE_URL?.trim() || 'https://www.midjourney.com/explore',
 }

@@ -59,6 +59,10 @@ export async function isAuthorizedToken(authorization: string | null) {
     return activeRegistryTokens.some((record) => bearer === `Bearer ${record.token}`)
   }
 
+  if (config.apiTokens.length > 0) {
+    return config.apiTokens.some((token) => bearer === `Bearer ${token}`)
+  }
+
   if (config.apiToken) {
     return bearer === `Bearer ${config.apiToken}`
   }

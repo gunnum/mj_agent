@@ -5,6 +5,7 @@ import { config } from './config.js'
 import { getRemoteAddress, getRequestLogDir, getRequestPath, getUserAgent, logRequest } from './logger.js'
 import { handleAgentRequest } from './routes.js'
 import { isAuthorizedToken } from './tokens.js'
+import { errorJson, json } from './utils.js'
 
 function buildCorsHeaders(request: Request) {
   const origin = request.headers.get('origin')?.trim()
@@ -36,16 +37,6 @@ function withCors(response: Response, request: Request) {
   })
 }
 
-function jsonResponse(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data, null, 2), {
-    status,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'cache-control': 'no-store',
-    },
-  })
-}
-
 async function handlePublicRequest(request: Request) {
   const url = new URL(request.url)
 
@@ -55,11 +46,11 @@ async function handlePublicRequest(request: Request) {
 
   if (url.pathname === '/healthz') {
     return withCors(
-      jsonResponse({
+      json({
         ok: true,
         mode: config.mode,
         checkedAt: new Date().toISOString(),
-        bridgeEnabled: Boolean(config.gatewayUrl && config.bridgeToken),
+        bridgeEnabled: config.mode === 'gateway' ? Boolean(config.bridgeToken) : Boolean(config.gatewayUrl && config.bridgeToken),
       }),
       request,
     )
@@ -67,7 +58,7 @@ async function handlePublicRequest(request: Request) {
 
   if (!(await isAuthorizedToken(request.headers.get('authorization')))) {
     return withCors(
-      new Response(JSON.stringify({ error: 'Unauthorized' }, null, 2), {
+      new Response(errorJson('UNAUTHORIZED', 'Unauthorized', 401).body, {
         status: 401,
         headers: {
           'content-type': 'application/json; charset=utf-8',
@@ -128,11 +119,9 @@ const server = createServer(async (req, res) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const status = /timed out/i.test(message) ? 504 : 500
+    const code = status === 504 ? 'TIMEOUT' : 'INTERNAL_ERROR'
     const response = withCors(
-      new Response(JSON.stringify({ error: message }, null, 2), {
-        status,
-        headers: { 'content-type': 'application/json; charset=utf-8' },
-      }),
+      errorJson(code, message, status),
       request,
     )
     res.writeHead(response.status, Object.fromEntries(response.headers.entries()))

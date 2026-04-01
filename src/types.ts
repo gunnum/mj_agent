@@ -10,6 +10,10 @@ export interface MidjourneyAgentStatus {
   browserReady: boolean
   loginState: 'unknown' | 'logged_in' | 'logged_out'
   currentPageUrl?: string | null
+  serialMode?: boolean
+  activeTask?: string | null
+  queuedTasks?: number
+  error?: string
 }
 
 export interface MidjourneyQueryOptions {

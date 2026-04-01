@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { config } from './config.js'
 import { handleAgentRequest } from './routes.js'
+import { errorJson, json } from './utils.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -134,32 +135,25 @@ function isBridgeAuthorized(request: Request) {
   return request.headers.get('authorization')?.trim() === `Bearer ${config.bridgeToken}`
 }
 
-function jsonResponse(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data, null, 2), {
-    status,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
-  })
-}
-
 export async function handleGatewayBridgeRequest(request: Request) {
   const url = new URL(request.url)
 
   if (!isBridgeAuthorized(request)) {
-    return jsonResponse({ error: 'Unauthorized bridge request' }, 401)
+    return errorJson('UNAUTHORIZED_BRIDGE', 'Unauthorized bridge request', 401)
   }
 
   if (request.method === 'POST' && url.pathname === '/api/bridge/pull') {
     const task = await bridgeQueue.pull(config.bridgePollTimeoutMs)
-    return jsonResponse({ ok: true, task })
+    return json({ ok: true, task })
   }
 
   if (request.method === 'POST' && url.pathname === '/api/bridge/result') {
     const body = (await request.json()) as BridgeResultPayload
     const accepted = bridgeQueue.complete(body)
-    return jsonResponse({ ok: accepted })
+    return json({ ok: accepted })
   }
 
-  return jsonResponse({ error: 'Not found' }, 404)
+  return errorJson('NOT_FOUND', 'Not found', 404)
 }
 
 export async function forwardToBridge(request: Request) {
@@ -199,14 +193,16 @@ async function executeBridgeTask(task: BridgeTask) {
     } satisfies BridgeResultPayload
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    const status = /timed out/i.test(message) ? 504 : 500
+    const code = status === 504 ? 'TIMEOUT' : 'INTERNAL_ERROR'
     return {
       id: task.id,
-      status: 500,
+      status,
       headers: {
         'content-type': 'application/json; charset=utf-8',
         'cache-control': 'no-store',
       },
-      body: JSON.stringify({ error: message }, null, 2),
+      body: JSON.stringify({ ok: false, code, error: message }, null, 2),
     } satisfies BridgeResultPayload
   }
 }

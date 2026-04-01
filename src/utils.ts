@@ -10,6 +10,23 @@ export function json(data: unknown, init: { status?: number } = {}) {
   })
 }
 
+export function errorJson(
+  code: string,
+  message: string,
+  status: number,
+  extra: Record<string, unknown> = {},
+) {
+  return json(
+    {
+      ok: false,
+      code,
+      error: message,
+      ...extra,
+    },
+    { status },
+  )
+}
+
 export async function readJson<T>(request: Request): Promise<T> {
   return request.json() as Promise<T>
 }

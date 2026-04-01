@@ -1,5 +1,5 @@
 import { midjourneyBrowser } from './browser.js'
-import { getNumber, json, readJson } from './utils.js'
+import { errorJson, getNumber, json, readJson } from './utils.js'
 
 export async function handleAgentRequest(request: Request) {
   const url = new URL(request.url)
@@ -20,7 +20,7 @@ export async function handleAgentRequest(request: Request) {
     const body = await readJson<{ prompt?: string; page?: number }>(request)
     const prompt = body.prompt?.trim()
     if (!prompt) {
-      return json({ error: 'prompt is required' }, { status: 400 })
+      return errorJson('INVALID_ARGUMENT', 'prompt is required', 400)
     }
     const page = Number.isFinite(body.page) ? Number(body.page) : 1
     return json(await midjourneyBrowser.runSearch(prompt, page))
@@ -29,7 +29,7 @@ export async function handleAgentRequest(request: Request) {
   if (request.method === 'GET' && url.pathname === '/api/explore/search') {
     const prompt = url.searchParams.get('prompt')?.trim()
     if (!prompt) {
-      return json({ error: 'prompt is required' }, { status: 400 })
+      return errorJson('INVALID_ARGUMENT', 'prompt is required', 400)
     }
     const page = getNumber(url.searchParams.get('page'), 1)
     return json(await midjourneyBrowser.runSearch(prompt, page))
@@ -45,5 +45,5 @@ export async function handleAgentRequest(request: Request) {
     return json(await midjourneyBrowser.fetchVideoTop(page))
   }
 
-  return json({ error: 'Not found' }, { status: 404 })
+  return errorJson('NOT_FOUND', 'Not found', 404)
 }
